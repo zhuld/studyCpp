@@ -1,0 +1,9 @@
+node_modules/
+bak/
+.tmp/
+*.obj
+*.exe
+.DS_Store
+Thumbs.db
+*.pdf
+tools/

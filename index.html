@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<!--
+  index.html — 页面骨架（所有容器在此声明，内容由脚本填充）
+
+  结构：报头 → 阅读工具条（目录开关、章节进度、阅读偏好）
+        → 左栏目录（部分 → 章 → 小节）→ 右栏教程（md 正文）
+        → 浮动代码工作台 → 底部脚本
+  数据：reader.js 读取 md/manifest.json 与 md/*.md 并渲染；
+        因此本文件中的 #sections、#chapterNav 等初始为空。
+  本地偏好：<head> 内的内联脚本在首屏绘制前恢复目录收缩状态，避免样式跳变。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>C++ Primer · 交互读本</title>
+<meta name="description" content="由本机 md Markdown 驱动的 C++ Primer 本地阅读器：章节目录、代码高亮、工作台在线运行。">
+<script>
+  // 首屏绘制前恢复阅读主题与系统偏好，避免主题闪烁。
+  var root = document.documentElement;
+  var systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  root.setAttribute("data-theme", systemTheme);
+  try {
+    var savedTheme = localStorage.getItem("cpp-primer-theme-v1");
+    if (savedTheme === "light" || savedTheme === "dark") {
+      root.setAttribute("data-theme", savedTheme);
+    }
+
+    var savedFontSize = parseInt(localStorage.getItem("cpp-primer-font-size-v1"), 10);
+    if (savedFontSize >= 15 && savedFontSize <= 21) {
+      root.style.setProperty("--reading-font-size", savedFontSize + "px");
+    }
+
+    // 无本地记录时跟随视口宽度：窄屏默认收缩目录
+    var savedToc = localStorage.getItem("cpp-primer-toc-collapsed-v1");
+    var tocCollapsed = savedToc === null
+      ? window.matchMedia("(max-width: 1080px)").matches
+      : savedToc === "1";
+    if (tocCollapsed) document.documentElement.classList.add("toc-collapsed");
+  } catch (e) {} // localStorage 不可用（如隐私模式）时按默认样式继续渲染
+</script>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%230b5fa5'/%3E%3Ctext x='32' y='45' font-family='Georgia' font-size='32' fill='%23fffdf6' text-anchor='middle'%3EC%2B%2B%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="mast-left">
+    <div class="seal" aria-hidden="true">C++</div>
+    <div class="mast-title">
+      <p class="kicker">C++ PRIMER · 5TH EDITION · INTERACTIVE READER</p>
+      <!-- #chapterName 为占位内容，切换章节时由 reader.js 覆写；默认首章为前言与目录 -->
+      <h1>C++ Primer 交互读本<span class="chapter" id="chapterName">本地原文</span></h1>
+    </div>
+  </div>
+</header>
+
+<div class="reading-dock" role="region" aria-label="阅读工具">
+  <!-- 目录开合：常驻入口，位于工具条最左；窄屏下目录为浮层抽屉时也用它开合 -->
+  <button class="dock-toggle" id="tocToggle" type="button"
+          aria-label="收起目录" aria-expanded="true" aria-controls="toc"
+          title="收起目录">
+    <span class="dock-icon" id="tocToggleIcon" aria-hidden="true">«</span>
+  </button>
+  <div class="reading-progress">
+    <div class="progress-track" id="readingProgress"
+         role="progressbar" aria-label="当前章节阅读进度"
+         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <span class="progress-fill" id="readingProgressFill"></span>
+    </div>
+    <span class="progress-value" id="readingProgressValue">0%</span>
+  </div>
+  <div class="reading-controls" role="group" aria-label="阅读偏好">
+    <div class="font-controls" role="group" aria-label="正文大小">
+      <button class="reading-control" id="fontDecrease" type="button"
+              aria-label="缩小正文字号" title="缩小正文字号">A−</button>
+      <output class="font-size-value" id="fontSizeValue" aria-label="当前正文字号">16px</output>
+      <button class="reading-control" id="fontIncrease" type="button"
+              aria-label="放大正文字号" title="放大正文字号">A+</button>
+    </div>
+    <button class="dock-toggle" id="themeToggle" type="button"
+            aria-label="切换到深色主题">
+      <span class="dock-icon" id="themeIcon" aria-hidden="true">☾</span>
+    </button>
+    <button class="dock-toggle" id="fullscreenToggle" type="button"
+            aria-label="进入全屏" title="全屏阅读，按 Esc 退出">
+      <span class="dock-icon" id="fullscreenIcon" aria-hidden="true">⤢</span>
+    </button>
+    <button class="dock-toggle" id="workbenchLauncher" type="button"
+            aria-label="打开代码工作台" title="打开代码工作台">
+      <span class="dock-icon" aria-hidden="true">›_</span>
+    </button>
+  </div>
+</div>
+
+<main class="layout">
+
+  <!-- ======================= 左：章节目录（可收缩） ======================= -->
+  <aside class="toc" id="toc" aria-label="章节目录">
+    <div class="toc-head">
+      <span class="toc-title">目录</span>
+      <!-- 窄屏下目录是覆盖工具条的浮层抽屉，故抽屉内保留一个收起按钮（仅 ≤1080px 显示） -->
+      <button class="toc-close" id="tocClose" type="button"
+              title="收起目录" aria-label="收起目录">«</button>
+    </div>
+    <!-- 三级瀑布式目录：部分分隔 → 章条目（章节按钮 + 小节抽屉），由 reader.js 渲染 -->
+    <nav class="chapter-nav" id="chapterNav" aria-label="课程章节"></nav>
+  </aside>
+
+  <!-- ======================= 右：教程（章节内容，由 reader.js 渲染） ======================= -->
+  <section class="lesson">
+
+    <div id="sections" class="md-content"><!-- 章节 Markdown 由 reader.js 渲染 --></div>
+
+    <footer class="page-foot">
+      <p>在线编译由 <a href="https://wandbox.org" target="_blank" rel="noopener">Wandbox</a> 提供 · 章节结构参考《C++ Primer 中文版 第5版》</p>
+    </footer>
+  </section>
+
+  <!-- ======================= 浮动：工作台 ======================= -->
+  <!-- 默认隐藏（HTML 静态声明，首屏即不占位）：需要时点工具条或正文代码块的按钮 -->
+  <aside class="workbench" id="workbench" aria-label="C++ 代码工作台" hidden>
+    <div class="wb-head" id="workbenchDrag" tabindex="0" aria-label="拖动代码窗口；也可用方向键移动">
+      <div class="filetab"><span class="dot" aria-hidden="true"></span>main.cpp</div>
+      <div class="wb-actions">
+        <button class="btn-ghost" id="resetBtn" title="恢复到当前载入的原始代码">重置</button>
+        <button class="btn-ghost" id="addStringBtn" title="在代码前添加 #include &lt;string&gt;">&lt;S&gt;</button>
+        <button class="btn-ghost" id="addIostreamBtn" title="在代码前添加 #include &lt;iostream&gt;"> &lt;IO&gt;</button>
+        <button class="btn-ghost" id="addVectorBtn" title="在代码前添加 #include &lt;vector&gt;"> &lt;V&gt;</button>
+        <button class="btn-run" id="runBtn" title="Ctrl+Enter">
+          <span class="run-ico" aria-hidden="true">▶ 运行</span>
+        </button>
+        <button class="wb-control wb-close" id="workbenchClose" type="button" title="最小化" aria-label="最小化代码窗口">_</button>
+      </div>
+    </div>
+
+    <div class="wb-content">
+      <!-- 编辑器为「高亮层 + 透明 textarea」叠放结构：
+           #hl 渲染着色后的代码（不可交互），#code 负责输入与光标，滚动位置由 reader.js 同步 -->
+      <div class="editor">
+        <div class="gutter" id="gutter" aria-hidden="true"></div>
+        <div class="editor-body">
+          <pre id="hl" aria-hidden="true"></pre>
+          <textarea id="code" wrap="off" spellcheck="false" autocomplete="off"
+                    autocorrect="off" autocapitalize="off"
+                    aria-label="C++ 代码编辑器"></textarea>
+        </div>
+      </div>
+
+      <div class="io-row">
+        <label class="io-label" for="stdin">stdin<span class="io-hint">（程序的标准输入，运行前填写）</span></label>
+        <textarea id="stdin" rows="3" wrap="off" spellcheck="false"
+                  placeholder="在这里输入程序要读取的数据…"></textarea>
+      </div>
+
+      <!-- 两个下拉框的选项由 reader.js 按 Wandbox 编译器列表填充 -->
+      <div class="opts-row">
+        <label class="sr-only" for="compilerSel">编译器</label>
+        <select id="compilerSel" title="编译器"></select>
+        <label class="sr-only" for="stdSel">C++ 标准</label>
+        <select id="stdSel" title="C++ 标准"></select>
+        <span class="opts-note">云端编译 · 约 1~3 秒</span>
+      </div>
+
+      <div class="output">
+        <div class="out-head">
+          <span class="out-title">输出</span>
+          <span class="out-meta" id="outMeta">就绪</span>
+        </div>
+        <pre class="out-body" id="out"><span class="out-placeholder">点击「运行」编译并执行当前代码。</span></pre>
+      </div>
+    </div>
+
+    <button class="wb-resize" id="workbenchResize" type="button"
+            title="拖动调整窗口大小" aria-label="调整代码窗口大小；也可用方向键"></button>
+  </aside>
+
+</main>
+
+<noscript>
+  <p style="padding:24px;font-family:Georgia,serif">本站需要启用 JavaScript 才能加载本地原文、目录与代码工作台。</p>
+</noscript>
+
+<!-- 加载顺序即依赖顺序：可运行判定 → 语法高亮 → Markdown 渲染器 → 阅读器 -->
+<script src="code-blocks.js"></script>
+<script src="highlight.js"></script>
+<script src="md.js"></script>
+<script src="reader.js"></script>
+</body>
+</html>
